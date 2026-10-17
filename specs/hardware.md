@@ -1,0 +1,22 @@
+# Hardware details
+
+- Supports multiple architectures - RISC-V 64, AArch64, and possibly x86-64
+  - Multi-core
+  - 4 GiB RAM minimum
+  - MMU (and IOMMU where possible) for memory protection
+  - Graphical 2D framebuffer minimum
+    - Hardware 3D support is ideal but not required
+  - Serial console (initial target, also for debugging)
+  - Fixed disk
+  - USB peripherals
+    - HID (keyboard, mouse, touchpad)
+    - Mass storage
+    - Camera
+- RISC-V 64
+  - qemu-virt machine
+  - Orange Pi RV2
+- AArch64
+  - qemu-virt machine
+  - Raspberry Pi 4B/5B
+- x86-64
+  - Standard PC, but also through qemu

@@ -108,7 +108,8 @@ This supports an `OpenLibrary` / `CloseLibrary` like implementation like the Ami
 Reference-counted load, resolve by name and version, unload when the count hits zero. 
 A cycle is possible, and when detected should be loudly indicated, name the offending
 libraries, but continue to execute. This should be considered a design flaw in
-libraries that cause these cycles.
+libraries that cause these cycles. In this case, the library will stay loaded until
+reboot or otherwise killed by the user.
 
 ## Memory model
 
@@ -400,6 +401,13 @@ method doesn't have it. Attempting to do so is a compiler refusal.
 At minimum: an `Atomics` module. A data race isn't memory-safe but is otherwise 
 unspecified.
 
+## Libraries
+
+`OpenLibrary` resolves by name and version. A version is manually incremented by the
+library author. The version is effectively a label, but fingerprints perform the real
+compatibility checks. The version is provided as a convenience to developers to as a
+means to express an accepted set of fingerprints.
+
 ## Open
 
 - The watchdog limit. 200 ms is a starting guess.
@@ -542,11 +550,7 @@ Pointers are 64-bit values (same as LongInt)
 
 ## Gaps
 
-Library versions versus fingerprints. OpenLibrary resolves "by name and version", but the spec never relates a version number to fingerprints. Is a version just a label, with fingerprints doing the actual compatibility check?
-
 Module initialization per domain. Module variables are per domain, so each module's body runs once in each domain that imports it. The spec doesn't say on which thread, in what order, or whether the body is allowed to block.
-
-Library cycles. Oberon already forbids import cycles at compile time, so a cycle can only come from OpenLibrary at runtime. Libraries in a cycle never reach a count of zero, so they stay loaded until reboot. That's a consequence worth stating.
 
 First-run translation. The spec doesn't say whose budget the translation runs on, or whether the module-address key hashes the IR or the native code.
 

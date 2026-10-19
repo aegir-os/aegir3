@@ -24,7 +24,45 @@ for Aegir.
 - Blocking procedures are flagged `{blocking}`, checked by the compiler. See
   [Blocking is explicit](#blocking-is-explicit).
 
-## Module names
+## Modules
+
+Module initialization. Module variables are per domain, so each module's body runs 
+once in each domain that imports it. 
+
+Module initialization occurs in the main thread, based on import order. Module 
+initialization is allowed to block, where necessary, but intentionally blocking
+initialization is discouraged.
+
+### Program entry
+
+A program starts in the body (`begin ... end`) of its root module, the module the
+program object names, as a C program starts in `main`. Oberon's commands
+(`Module.Procedure` invoked from outside) are not used to launch programs.
+
+- Imported modules initialize first, in import order, then the root module's body
+  runs on the main thread.
+- Returning from the root body ends the program with a success code. `HALT(n)`
+  ends it with `n`.
+- An interactive program typically ends its body in `Ports.Run`, turning the main
+  thread into its event thread.
+- Initialization runs before any `Ports.Run`, while the main thread is not yet an
+  event thread, so initializers may block.
+
+### Program arguments
+
+A program declares its arguments as a `ReadArgs` template in the program object's
+metadata, beside its spawn budget: `FILE/A,LINE/N,READONLY/S`.
+
+- The shell parses arguments with the same `ReadArgs` parser used by command
+  ports, so a bad argument is refused, naming the template, before the program
+  starts.
+- The program reads its parsed arguments through an `Args` module.
+- Because the template describes every argument, a launcher can present it as a
+  form to fill in, as IBM i prompts a command's parameters with F4 and
+  PowerShell's `Show-Command` does. Command-port templates allow the same for
+  application commands.
+
+### Module names
 
 Module names may be dotted, so a provided module and a library are less likely to
 collide. The dots are for naming only.
@@ -58,6 +96,8 @@ collide. The dots are for naming only.
   key all use the full dotted name.
 - Module names are unique ignoring case, so a case-insensitive file system cannot
   make two modules collide.
+- The `System.` prefix is reserved for the base system, for module names and
+  published port names alike. Open: how it is enforced.
 
 ## Bootstrapping
 
@@ -78,6 +118,8 @@ Refusals come in a few forms:
 - HALT will terminate a domain with an explicit system return code.
 - ASSERT failures will terminate a domain, when running with assertions enabled.
   Assertion enablement is a compiler flag, and are non-op when this flag is disabled.
+- Thread limits, worker queue, job and port refusals occur at runtime via a returned 
+  error code.
 
 ## Codegen
 
@@ -97,10 +139,11 @@ declaration’s signature, and the loader checks that a module’s imports match
 fingerprints of what it’s loading against. Failing a fingerprint is a loud failure -
 refuse to load, name the module and mismatching symbols.
 
-Drivers and the base system: translate at build time, ship native, keep the 
-IR for porting.
+Drivers and the base system: translate at build time, ship native only. The base
+IR stays in the build and the distribution, where porting happens, and is not
+installed on the device. See [Base system](#base-system).
 
-Apps: ship IR, translate at first run, cache native in the program object. This does
+Apps: ship IR, translate at first run, keep native in the [native cache](#native-cache). This does
 mean an initial performance hit. That is accepted until a greater "installation" story
 exists within Aegir. 
 
@@ -108,8 +151,91 @@ This supports an `OpenLibrary` / `CloseLibrary` like implementation like the Ami
 Reference-counted load, resolve by name and version, unload when the count hits zero. 
 A cycle is possible, and when detected should be loudly indicated, name the offending
 libraries, but continue to execute. This should be considered a design flaw in
-libraries that cause these cycles. In this case, the library will stay loaded until
-reboot or otherwise killed by the user.
+libraries that cause these cycles. In this case the libraries in the cycle stay
+loaded for as long as the domains using them live. Library opens are recorded in
+the opening domain's table, including opens made by library code, so when those
+domains end, cleanup releases every count they held and the cycle is freed.
+
+A library runs inside the domains that open it and cannot be killed on its own.
+Code that needs its own state, threads or lifetime is a service: a domain of its
+own, reached through a published port.
+
+### Translation service
+
+First-run translation is done by a translation service, a domain of its own with
+its own budget, not by the app's domain.
+
+- On the device, the service is the only domain that writes native code. The only
+  other source of native code is the build. An app never has write access to its
+  own code. The compiler's checks (region kinds, `{blocking}`, `{borrowed}`) only
+  hold if native code comes from the translator; an app that could write its own
+  native code could skip them.
+- An app's spawn budget covers running it, never translating it.
+- The service runs the same translator the build uses for the base system.
+- Spawning a program that needs translation waits on the service. The launcher
+  uses the `Send` form and gets a completion message, so its event thread does not
+  block.
+- The service has a fixed worker pool and job queue. A full queue, or a program
+  too large for the service's budget, is a refusal naming the numbers, returned to
+  whoever requested the spawn.
+- Cached native code is valid while its stored IR hash and translator version
+  match. If either differs, the program is translated again.
+
+### Native cache
+
+Native code for apps lives in a system-owned cache, never in the program object.
+A program object holds only IR, its spawn budget and its metadata.
+
+- The cache is keyed by IR hash, translator version and architecture. Entries
+  are native code before fixups; fixups are applied at load, so the cache key
+  needs no import keys (the module-address key does).
+- Only the translation service writes to the cache. A program object arriving
+  from another machine has nowhere to carry native code, so provenance needs no
+  signing, keys or machine identifier. Copying an app does not copy its native
+  code; the copy is translated once on first run.
+- Two copies of the same app share one entry, because the key is content-based.
+- The cache has a fixed size budget. When a new entry does not fit, the least
+  recently used entries are evicted. Entries for loaded images are pinned and
+  never evicted. If pinned entries alone fill the cache, the translation is
+  refused, naming the cache size, the pinned total and the request, to whoever
+  requested the spawn.
+- Deleting a program (`delete Foo`) does not touch the cache. Its entries are no
+  longer used and age out through eviction. Deletion hooks would miss programs
+  deleted from another system or on removable media; ageing out covers every
+  case, and an app on removable media keeps its entries until they are evicted.
+- The service also removes entries unused for a fixed period (a starting guess:
+  30 days), so dangling entries do not sit in a cache that never fills.
+- After a translator upgrade, entries for the old translator version can never be
+  used again. The service removes them at once.
+- The cache is disposable. Clearing it is always safe and costs retranslation.
+- The base system's native code is not in this cache. It ships from the build in
+  its own system-owned location and is never evicted.
+
+### Base system
+
+The translator is part of the base system, so a new translator only ever arrives in
+a base upgrade, which also carries base native code built by that translator. The
+device never holds a translator newer than its base native code, and never
+translates the base system.
+
+- The build translates the base system for every target architecture. First boot
+  and development translate nothing on the device.
+- The translator is deterministic: the same IR and translator version always give
+  identical native code. Native code from the build is exactly what the
+  translation service would produce, so it is trusted for the same reason.
+- The base size budget counts the native base system on the device. Base IR is
+  not installed, so it does not count.
+- Module objects carry a table of procedure names, so refusals, traps and the
+  watchdog can name the procedure. The names count against the size budget. Line
+  tables and other debug information stay in the build.
+- After a base upgrade brings a new translator, cached app native code no longer
+  matches. The translation service retranslates apps in the background at low
+  priority. An app launched before its turn is translated on demand.
+
+Prior art: Android once compiled every app after each system update, behind a
+minutes-long "Optimizing apps" screen, and moved the work to the background
+before and after the reboot. Here the base system never needs it, and apps get it
+in the background.
 
 ## Memory model
 
@@ -164,10 +290,17 @@ measurements from the gauge.
 
 - Each loaded image gets one reservation: code (RX), constants (R), variables (RW),
   rounded to 64 KiB, followed by a 64 KiB unmapped guard.
-- The reservation is keyed by (module name, content hash of the image). When an
-  image's count hits zero and it is later reloaded unchanged, it gets the same
-  address back. A different image never gets an address any other image has held
-  since boot.
+- The reservation is keyed by the image: module name, IR hash, translator version,
+  and the keys of the modules it was fixed up against. When an image's count hits
+  zero and it is later reloaded unchanged, it gets the same address back. A
+  different image never gets an address any other image has held since boot.
+- The IR hash alone is not enough. A new translator turns the same IR into
+  different code, and fixups patch in the addresses of the modules imported, so
+  the same IR linked against a different version of an import is different code.
+  Both versions can be loaded at once, so they need different addresses.
+- Because each import's key includes its own imports, a module's key covers
+  everything below it. Updating a low-level library gives everything that imports
+  it a new image, and a new address, the next time it loads.
 - Consequence: a stale procedure pointer into an unloaded module either points at
   that exact code (same image, reloaded) or faults. It never lands in different code.
 - Consequence: consumption scales with *distinct images loaded since boot*, not with
@@ -179,7 +312,7 @@ measurements from the gauge.
   charged to that domain's budget. Writable data shared across domains goes in a
   shared region, never in module variables.
 - Module addresses do not survive reboot. The class is reset every boot, and
-  native code cached in program objects is fixed up at load like everything else.
+  native code from the cache is fixed up at load like everything else.
   Images change far more often than on IBM i, so a persistent address would mostly
   pin stale versions.
 - Budget: 32 GiB / (256 KiB average image + 64 KiB guard) ≈ 100,000 distinct images
@@ -248,6 +381,65 @@ p.next := h;                   (* error: heap pointer in region memory *)
 p := Unsafe.Region(Msg, adr);  (* traps unless adr is shared or ipc *)
 ```
 
+#### Region strings
+
+`String` is a reference, so it follows the same rule as pointers: a string stored
+in region memory must itself be in a region.
+
+- `String {region}` is the region string kind. Records reachable through a region
+  pointer may contain `String {region}` fields, never plain `String`.
+- Assigning between `String` and `String {region}` is a compile-time error in
+  either direction, as with pointers.
+- A heap string is copied into a region explicitly: `Strings.ToRegion(s, r)`
+  returns a `String {region}` allocated in `r`. There is no implicit copy.
+- Strings are immutable, so sharing a region string is safe: the receiver can
+  never see it change, and no locking is needed.
+- Strings short enough to fit in an inline message are copied with the message
+  and need no region. See [Passing regions](#passing-regions).
+
+```oberon
+type
+  Msg = record
+    name: String {region};
+    next: pointer {region} to Msg
+  end;
+var
+  s: String;
+  p: pointer {region} to Msg;
+
+p.name := s;                      (* error: heap string in region memory *)
+p.name := Strings.ToRegion(s, r); (* ok: copied into r *)
+```
+
+#### Borrowed parameters
+
+Procedures that only read a string, most of `Strings`, accept either kind rather
+than exist twice. The parameter is flagged `{borrowed}`, after the name as
+Active Oberon places variable flags:
+
+```oberon
+procedure Length*(s {borrowed}: String): Integer;
+procedure Equal*(a {borrowed}, b {borrowed}: String): Boolean;
+```
+
+- A flag applies only to the single name it follows. In a grouped declaration
+  each name carries its own flag: `a {borrowed}, b {borrowed}: String`. In
+  `a, b {borrowed}: String`, only `b` is borrowed.
+- A `{borrowed}` `String` parameter accepts `String` and `String {region}`.
+- The procedure may read, index, compare and explicitly copy it, and pass it to
+  another `{borrowed}` parameter.
+- It may never store the reference: not in a variable, not in a record field,
+  not as the return value. The procedure cannot know which kind it holds, so any
+  store could put a heap string in region memory or the reverse. Storing is a
+  compile-time error.
+- Oberon already has this rule for open array parameters, which can be read and
+  passed on but never assigned.
+- The flag is part of the procedure type and its fingerprint, like
+  `{blocking}`.
+- Strings only for now. Extending `{borrowed}` to pointers, so one procedure can
+  read a record through either pointer kind, is possible later and would be a
+  language addition.
+
 ### Memory management
 
 A garbage collector, and traditional memory management will be available.
@@ -279,11 +471,16 @@ a simple conservative GC, per domain.
 A domain receives at spawn, and dies with a refusal naming the number:
 
 - Heap bytes.
+- C heap bytes, for domains that use the [FFI](#foreign-function-interface-ffi).
 - Thread slots and stack bytes per thread. See [Concurrency](#concurrency).
 - Worker pool size and job queue length.
 - Module-variable bytes for everything it may import.
 - Live IPC regions; live shared-region mappings.
 - Cumulative shared-class creation quota.
+- Port slots, and the queue length of each port. A full port queue returns a
+  result code to the sender naming the length, for every port, not only command
+  ports.
+- Handle slots, for ports found by name.
 
 The program declares these, after the Amiga's stack setting in a program's
 icon:
@@ -313,6 +510,12 @@ icon:
 - `check-layout`, a build prerequisite: the class table is contiguous,
   non-overlapping, granularity-aligned and fits 39 bits.
 
+### Stack
+
+Stack overflow. Fixed stacks need an unmapped guard page each, so an overflow traps 
+with the numbers instead of corrupting memory, resulting in a loud refusal which
+terminates the domain.
+
 ### Open
 
 - Class sizes are build-time constants and cheap to change. Only one class can
@@ -339,6 +542,8 @@ runtime otherwise.
   is a refusal: `refused: threads: 8 of 8 in use`.
 - GC stops every thread in the domain and scans all of their stacks. Other
   domains are unaffected.
+- Each thread has a thread-local storage pointer, set by the kernel. C code
+  needs it for per-thread `errno`; see [C library](#c-library).
 
 ### Ports
 
@@ -408,14 +613,19 @@ library author. The version is effectively a label, but fingerprints perform the
 compatibility checks. The version is provided as a convenience to developers to as a
 means to express an accepted set of fingerprints.
 
-## Open
-
-- The watchdog limit. 200 ms is a starting guess.
-- GC pauses on an event thread look like hangs. Measure pause time early;
-  incremental collection may be needed sooner than planned.
-- Whether lock-based code is common enough to want Active Oberon's `{exclusive}`
-  and `await`. Start with library modules only (`Threads`, `Ports`, `Tasks`).
-  Adding them later is a language addition and bumps the IR version.
+- The requested version is a minimum, as on the Amiga: requesting version 3 accepts
+  version 3 or anything later.
+- A version that breaks compatibility gets a new name instead of a higher number,
+  as `foo.library` became `foo2.library`: `Foo2` beside `Foo`. Both can be
+  installed and loaded at once.
+- If an author breaks compatibility without renaming, fingerprints still catch
+  it: the load fails loudly, naming the module and the mismatching symbols.
+- `OpenLibrary` is `{blocking}`, since loading reads from disk. Following the
+  `Send`/`Do` rule it also has a `Send` form, completing with a message.
+- A library's initializer runs on the thread that loaded it: the calling thread
+  for the `Do` form, a worker from the domain's pool for the `Send` form. An event
+  handler cannot call the blocking form, so an initializer never runs on an event
+  thread.
 
 ## Cross-domain concerns
 
@@ -432,9 +642,37 @@ the pair in `Forbid()`/`Permit()`, stopping multitasking to get around it.
   on every send.
 - Sending to a handle whose port is gone returns a result code naming the port.
   It never crashes and never needs the system stopped.
+- Names starting with `System.` are reserved for the base system. See
+  [Module names](#module-names).
 - A name is unique while its port lives. A second publish of a live name gets
   an instance suffix, as ARexx ports did: `Editor.1`, `Editor.2`.
 - Handles are slots, counted in the spawn budget.
+
+### Passing regions
+
+A region pointer only works in a domain that has the region mapped. Sending one
+therefore moves the mapping with the message, as Mach's out-of-line memory did.
+
+- A cross-domain send lists the regions the message refers to:
+  `Ports.Send(handle, msg, regions)`.
+- The kernel checks the message against the list. Type descriptors already record
+  where a record's pointers are (the GC uses them), so the kernel finds every
+  region pointer in the message and range-compares it against the listed
+  regions. A region pointer outside them refuses the send, naming the pointer's
+  field.
+- On delivery the kernel maps each listed region into the receiver. Each mapping
+  is charged to the receiver's live shared-region mappings budget. A receiver
+  over budget refuses the message, and the sender gets a result code naming the
+  receiver's limit.
+- Mappings are read-only by default. The sender grants write access explicitly,
+  per region, per send.
+- The domain that creates a region holds it read-write. Only it may grant write
+  access.
+- The receiver unmaps a region when done, or when it dies. A region lives while
+  any domain maps it, so the receiver's mapping keeps it alive after the sender
+  unmaps.
+- Inline messages, those under the fixed inline size, are copied by the kernel.
+  They may still carry region pointers, which are checked and mapped the same way.
 
 ### Command ports
 
@@ -498,13 +736,52 @@ design must meet these rules:
   `lua_error`) call Oberon only through a C shim: the Oberon procedure returns a
   result code and the shim raises the C-side error.
 
+### C library
+
+C code gets [picolibc](https://keithp.com/picolibc/). musl assumes a POSIX
+kernel underneath, newlib is painful to port, and writing our own means
+re-solving `printf`, `strtod`, the math library and locales.
+
+- picolibc tests on 64-bit ARM, 64-bit RISC-V and x86_64.
+- Its `malloc` takes memory through `sbrk`, and its bundled `sbrk` hands out a
+  fixed area between `__heap_start` and `__heap_end` and refuses past it. That
+  area is the C heap reserved in the domain's spawn budget, so C memory is
+  budgeted with no allocator of our own.
+- Its stdio ("tinystdio", from avr-libc) is to be backed by Aegir modules
+  through a shim, not by POSIX calls. To be confirmed against its documentation
+  before relying on it.
+- tinystdio needs atomics, which `Atomics` provides.
+- C expects per-thread `errno` through thread-local storage. picolibc supports
+  it; the kernel sets a thread-local storage pointer for each thread. See
+  [Threads](#threads).
+
+### Compiler and conversion
+
+- C is compiled by the build host's clang. The build does not build or carry its
+  own compiler. One clang targets every architecture.
+- On-device C compilation is a non-goal (no on-device linking), so a small
+  compiler such as TinyCC has no role.
+- Pipeline, all at build time: clang compiles each file to a relocatable ELF
+  object; the host linker combines a library's objects into one with `ld -r`; the
+  converter turns that object's ELF relocations into Aegir fixup lists and emits
+  a module object.
+- The module class starts at 64 GiB, so code models that assume everything sits
+  in the low 2 GiB do not work. Code must address relative to the instruction:
+  - RISC-V: `-mcmodel=medany`, and `-mno-relax` so linker relaxation cannot
+    change code after the converter reads it.
+  - AArch64: the default small model (`ADRP`) already works.
+  - x86-64: open, see below.
+
 ### Open
 
-- Which C library C code gets. Lua and FreeType both expect parts of the C
-  standard library (`malloc`, `string.h`, Lua's `io` and `os` on `stdio`). A small
-  libc subset over Aegir modules is likely; how much of it, and whether Lua's `io`
-  and `os` are replaced by Aegir-specific modules, is undecided.
-- The cross compiler and the object conversion step.
+- Whether Lua's `io` and `os` libraries are kept over the picolibc shim or
+  replaced by Aegir-specific modules.
+- x86-64 code model. The default model assumes the low 2 GiB. The choices are
+  the large model (bigger, slower code) or position-independent code, which
+  reaches other modules through a GOT. The converter could fill that GOT as the
+  module's import table, which arguably keeps the spirit of "no PLT/GOT". Deferred
+  until a native x86-64 target is wanted; x86-64's range of devices puts it well
+  behind RISC-V and AArch64.
 
 ## Cleanup
 
@@ -518,44 +795,206 @@ Outstanding requests to a dead domain need to complete with an error result code
 
 A 64 bit address space is assumed.
 
-1. Boolean - the truth values True and False
+1. Boolean - the truth values `true` and `false`
 
 ### Numeric
 
-1. Byte - a single byte (8 bit)
-1. ShortInt - the integers between min(ShortInt) and max(ShortInt)
-1. Integer - the integers between min(Integer) and max(Integer)
-1. LongInt - the integers between min(LongInt) and max(LongInt)
-1. Real - the real numbers between min(Real) and max(Real)
-1. LongReal - the real numbers between min(LongReal) and max(LongReal)
-1. Set - the sets of integers between 0 and max(Set)
+1. Byte - a signed single byte (8 bit)
+1. ShortInt - the signed integers between min(ShortInt) and max(ShortInt) (16 bit)
+1. Integer - the signed integers between min(Integer) and max(Integer) (32 bit)
+1. LongInt - the signed integers between min(LongInt) and max(LongInt) (64 bit)
+1. UByte - a unsigned single byte (8 bit)
+1. UShortInt - the unsigned integers between min(ShortInt) and max(ShortInt) (16 bit)
+1. UInteger - the unsigned integers between min(Integer) and max(Integer) (32 bit)
+1. ULongInt - the unsigned integers between min(LongInt) and max(LongInt) (64 bit)
+1. Real - the real numbers between min(Real) and max(Real) (32 bit)
+1. LongReal - the real numbers between min(LongReal) and max(LongReal) (64 bit)
+1. Set - the sets of integers between 0 and max(Set) (64 bit)
 
 They form a hierarchy; the larger type includes (the values of) the smaller type:
 
-  LongReal ⊇ Real ⊇ LongInt ⊇ Integer ⊇ ShortInt ⊇ Byte
+  LongReal ⊇ Real
+  
+  LongInt ⊇ Integer ⊇ ShortInt ⊇ Byte
 
-Loss of precision requires explicit conversions, provided in the `Unsafe` module.
-There is no implicit loss of precision, that would be a compiler refusal.
+  ULongInt ⊇ UInteger ⊇ UShortInt ⊇ UByte
+
+Implicit type conversions that lose precision will be refused as an error by the
+compiler, and explicit conversions are provided by the `Conversions` module. This
+module will include functions that trap on overflow, and explicit truncating
+conversion functions will be provided.
 
 ### Pointers
 
-Pointers are 64-bit values (same as LongInt)
+Pointers are 64-bit values to match the platform.
 
 ### Character and String
 
 1. Char - Unicode codepoint / rune
-1. String - Immutable, heap allocated "list" of Unicode codepoints / runes.
-   A Strings module will include methods for formatting strings, working with
-   buffers to build strings.
+1. String - an immutable sequence of code points, stored as UTF-8.
+   1. A Strings module will include methods for formatting strings, working with
+      buffers to build strings.
+   1. Stored as UTF-8, always followed by a NUL byte. The header holds the byte
+      length, the code-point count and an "all ASCII" flag, computed once when
+      the string is created, since strings are immutable.
+   1. Strings cannot be indexed: there is no `s[i]`. With UTF-8 storage, reaching
+      the i-th code point means scanning from the start, and hiding that cost
+      behind `s[i]` would make an ordinary loop quadratic.
+   1. Strings are read with a cursor that moves one code point at a time, each
+      step O(1):
 
-## Gaps
+      ```oberon
+      c := Strings.First(s);
+      while Strings.Next(s, c, ch) do (* ch is the next Char *) end
+      ```
 
-Module initialization per domain. Module variables are per domain, so each module's body runs once in each domain that imports it. The spec doesn't say on which thread, in what order, or whether the body is allowed to block.
+   1. Positions are cursors, not integers. Searching returns a cursor, and
+      slicing takes two cursors, so a position can never fall inside a code
+      point.
+   1. `Strings.Length(s)` is the code-point count and `Strings.Size(s)` the byte
+      count, both O(1) from the header.
+   1. An algorithm that needs random access copies the string out explicitly,
+      into an `array of Char`.
+   1. A `{borrowed}` string passes to C as a `char*` with no copy, since it is
+      already UTF-8 and NUL-terminated. C must not keep the pointer. A string
+      containing U+0000 is refused at the FFI boundary, since C would read it as
+      the end of the string.
+   1. What users see as one character can be several code points (an accented
+      letter, an emoji with modifiers). Grapheme clusters belong in a later
+      `Text` module for editing and display, not in `String`.
+   1. When the GC is disabled, allocation occurs on the heap. Their lifecycle is 
+      managed by the user with the `new` and `dispose` functions.
+   1. With the GC enabled, allocations occur on the managed heap. They must still be
+      allocated with `new` and the GC can be hinted with `dispose` but their collection
+      will happen as part of the standard GC cycles.
+   1. String literals are part of the module's constant section. A string literal
+      must be copied into a region.
 
-First-run translation. The spec doesn't say whose budget the translation runs on, or whether the module-address key hashes the IR or the native code.
+## Open
 
-Stack overflow. Fixed stacks need an unmapped guard page each, so an overflow traps with the numbers instead of corrupting memory.
+- The watchdog limit. 200 ms is a starting guess.
+- GC pauses on an event thread look like hangs. Measure pause time early;
+  incremental collection may be needed sooner than planned.
+- Whether lock-based code is common enough to want Active Oberon's `{exclusive}`
+  and `await`. Start with library modules only (`Threads`, `Ports`, `Tasks`).
+  Adding them later is a language addition and bumps the IR version.
 
-Base system size budget. AGENTS.md requires a size budget that the build enforces. The
-spec ships both native code and IR for the base system. Does the IR count against that
-budget?
+## Glossary
+
+### Aegir terms
+
+- **Address class**: one of the fixed ranges the address space is divided into
+  (null guard, private, module, shared, ipc). Each has its own reuse policy.
+  See [Address classes](#address-classes).
+- **Blocking procedure**: a procedure flagged `{blocking}`, meaning it may wait.
+  The compiler requires its callers to be flagged too. See
+  [Blocking is explicit](#blocking-is-explicit).
+- **Borrowed parameter**: a parameter flagged `{borrowed}`. It accepts either
+  string kind and may be read or passed on, never stored. See
+  [Borrowed parameters](#borrowed-parameters).
+- **Command port**: a published port that accepts text-style commands with
+  `ReadArgs` templates, for scripts and the shell. See
+  [Command ports](#command-ports).
+- **Domain**: short for protection domain. One running program's isolated set of
+  private memory, threads, ports and budget, with its own page table. Close to
+  what other systems call a process, except that code and regions appear at the
+  same address in every domain that can see them. A domain dies as a unit, and
+  cleanup reclaims everything it held.
+- **Epoch**: one of the 64 windows of 2 GiB that the ipc class is divided into.
+  Its addresses become reusable once every region in it is gone. A **pinned**
+  epoch still holds a live region. See [IPC](#ipc).
+- **Event thread**: a thread whose loop is run by the runtime with
+  `Ports.Run`, dispatching messages to a handler that may not block. See
+  [Event threads](#event-threads).
+- **FFI**: the foreign function interface, for calling C code. See
+  [Foreign function interface (FFI)](#foreign-function-interface-ffi).
+- **Fingerprint**: a hash over an exported declaration's signature. The loader
+  refuses to load a module whose imports don't match the fingerprints of what it
+  loads against. See [Codegen](#codegen).
+- **Gauge**: the per-class report of address-space use: in use, high-water, rate
+  and projected exhaustion. See
+  [Exhaustion and the gauge](#exhaustion-and-the-gauge).
+- **Guard**: unmapped address space placed after a reservation or stack, so
+  running off the end faults instead of corrupting a neighbour.
+- **Handle**: what `Ports.Find` returns. The kernel checks it on every send, and
+  a send to a port that is gone returns a result code. See
+  [Finding ports by name](#finding-ports-by-name).
+- **Heap pointer**: an ordinary `pointer to T`, into the domain's private heap.
+  It means nothing in any other domain.
+- **Hosted backend**: Aegir's runtime running as a program on another operating
+  system, for development. It runs the same allocators and budgets as the real
+  system, so exhaustion reproduces there.
+- **Image**: one specific build of a module, identified by its module name, IR
+  hash, translator version and the images it was fixed up against. Module
+  addresses are keyed by image. See [Module](#module).
+- **IR**: the serializable, version-stable intermediate representation the
+  compiler emits. Apps ship as IR. See [Codegen](#codegen).
+- **Job**: a unit of work queued on a domain's worker pool with `Tasks.Run`,
+  with a cancel flag. See [Work pool](#work-pool).
+- **Library**: a module loaded at runtime with `OpenLibrary`, reference
+  counted, and unloaded when the count reaches zero. It runs inside the domains
+  that open it and has no domain of its own. See [Libraries](#libraries).
+- **Module variables**: a module's global variables. Each domain gets its own
+  copy, at the same address in every domain.
+- **Port**: a message queue owned by a thread. Threads wait on sets of ports.
+  A **published** port can be found by name from other domains. See
+  [Ports](#ports).
+- **Native cache**: the system-owned store of translated app code, keyed by IR
+  hash, translator version and architecture. See [Native cache](#native-cache).
+- **Program object**: the file holding a program's IR, its spawn budget and its
+  metadata. Never native code.
+- **Refusal**: a failure that names the quantity involved. Either a result code
+  returned to the caller or, for exhausting a budget, termination of the domain.
+  See [Refusals](#refusals).
+- **Region**: a block of memory for sharing between domains, at the same address
+  in every domain that maps it. It lives in the shared or ipc class, lives while
+  any domain maps it, and is never traced by the garbage collector.
+- **Region pointer**: `pointer {region} to T`, the only pointer kind allowed to
+  point into a region. See [Pointers across domains](#pointers-across-domains).
+- **Region string**: `String {region}`, an immutable string allocated in a
+  region, so it can be shared between domains. See [Region strings](#region-strings).
+- **Result code**: the value a procedure that can fail returns, in Oberon's `res`
+  tradition.
+- **Service**: code running in a domain of its own, reached through a published
+  port. What a library becomes when it needs its own state, threads or
+  lifetime.
+- **Shim**: a small piece of C code between a C library and Oberon, for example
+  turning a result code into a Lua error.
+- **Slot**: an entry in a fixed-size kernel table (threads, ports, handles),
+  taken from the domain's budget.
+- **Spawn budget**: the fixed amounts of memory and slots a domain receives when
+  it starts, never grown. See [Spawn budget](#spawn-budget).
+- **Translation**: converting IR to native code. At build time for drivers and
+  the base system, at first run for apps by the translation service. See
+  [Translation service](#translation-service).
+- **Translation service**: the trusted domain that translates apps on first run
+  and after translator upgrades. On the device it is the only writer of native
+  code, into the native cache.
+- **Unsafe**: the module holding unchecked operations, Oberon's `SYSTEM` renamed.
+  Importing it marks a module as doing unchecked things.
+- **Watchdog**: the check that reports an event thread which has not returned to
+  waiting on its ports within a time limit.
+
+### Prior art
+
+- **Active Oberon**: an Oberon dialect from ETH Zürich with concurrency built in
+  and `{flag}` syntax, the source of `{region}` and `{blocking}`.
+- **ARexx**: the Amiga's scripting system. Apps exposed named ports accepting
+  command strings, which REXX scripts drove.
+- **Exec**: the AmigaOS kernel, with message ports, `FindPort`, `DoIO` and
+  `SendIO`.
+- **IBM i**: IBM's midrange operating system, descended from the System/38, with
+  a single-level store whose addresses are never reused.
+- **IPL**: initial program load, IBM's term for a reboot.
+- **Native Oberon**: the ETH Oberon operating system, source of the module
+  loader, fixups and fingerprints.
+- **ReadArgs**: AmigaDOS's argument parser, driven by templates such as
+  `FILE/A,LINE/N`.
+- **SASOS**: single address space operating system, where every program shares
+  one address space.
+- **Sv39**: RISC-V's virtual memory mode with 39-bit addresses.
+- **TIMI**: IBM i's Technology Independent Machine Interface. Programs ship in a
+  machine-independent form and are translated to native code on the machine.
+- **Tool Types**: settings stored in an Amiga program's icon, such as its stack
+  size.
+- **VOC**: the Vishap Oberon Compiler, used to bootstrap.

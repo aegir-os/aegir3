@@ -591,7 +591,7 @@ method doesn't have it. Attempting to do so is a compiler refusal.
   kernel call from an event thread is refused, naming the procedure.
 - Watchdog for what neither can see, long computation: an event thread that has
   not returned to its port wait within a fixed limit is reported, naming the
-  running procedure.
+  running procedure. It is paused for a domain a debugger has stopped.
 
 ### Work pool
 
@@ -869,6 +869,119 @@ Pointers are 64-bit values to match the platform.
       will happen as part of the standard GC cycles.
    1. String literals are part of the module's constant section. A string literal
       must be copied into a region.
+
+## Source level debugging
+
+When the user enables debug symbols on the compiler command line, the compiler
+will include debug symbols with the IR, which will carry forward to the native
+code.
+
+Lack of debug symbols doesn't preclude the use of the debugger, but it means
+the user will be debugging against native code as opposed to seeing the original
+source code.
+
+A debugger needs five things from debug information: a line table (native
+address to source line and back, for breakpoints and the current position),
+each procedure's variables and where they live, type descriptions (record fields
+and offsets, to display values), unwind information (to find the caller's frame,
+for backtraces) and source file names. Prior art: Native Oberon's compiler always
+emitted a small reference block per object file, with each procedure's variables,
+types and frame offsets, enough to show local variable values on a trap.
+
+### Debug builds are unoptimized
+
+- Debug symbols require optimization off: `O=0`. Asking for both, as in
+  `o5c Foo.ob5 O=3 DEBUG`, is a loud refusal by the compiler.
+- Unoptimized, every variable has a fixed stack slot and every statement is a
+  valid breakpoint position. That keeps the debug information close to Oberon's
+  reference block instead of the full complexity of DWARF, most of which exists
+  for optimized code.
+- The compiler emits the IR-to-source mapping. The translator emits the
+  native-to-IR mapping. Together they give native address to source line.
+- The optimization level and debug flag are recorded in the IR, so the IR hash,
+  and with it the native cache key, already tells debug code from release code.
+
+### Frame pointers
+
+All code keeps frame pointers, the base system included. Backtraces then work
+everywhere, including trap reports on the device, with no unwind tables on the
+device. The cost is one register and a few instructions per call.
+
+### Host debugging first
+
+The compiler exists long before most of Aegir, so the first debugger is gdb or
+lldb on the development machine. A debugger on Aegir comes later, over the same
+kernel interface.
+
+- The kernel provides a debug interface: stop and resume a domain's threads, read
+  and write its memory, set breakpoints.
+- The interface speaks GDB's remote serial protocol over the serial console. QEMU
+  provides the same protocol for kernel bring-up, and gdb or lldb, and editors
+  driving them, work unchanged.
+- For host debugging, debug information stays on the development machine, as line
+  tables do for the base system. The translator is deterministic, so the host runs it over an app's
+  IR, gets exactly the native code the device produced, and generates DWARF from
+  it for gdb or lldb.
+- Module addresses are assigned at load, so the device reports where each module
+  was loaded, as a shared-library list does on other systems.
+
+### Debugging on Aegir
+
+Once the editor, compiler and debugger run on Aegir, debug information has to be
+on the device. This is where symbols carry forward from the IR to the native code.
+
+- The IR carries the IR-to-source mapping, variables and types, as emitted by the
+  compiler.
+- When the translation service translates debug IR, it writes the native-to-IR
+  mapping into the native cache entry beside the code. Release IR carries no debug
+  information and gets none.
+- The debugger on Aegir uses the same kernel debug interface as the host debugger.
+- An app's debug information counts against its own size, never the base size
+  budget.
+- The base system ships without debug information, as before. Debugging the base
+  system on the device needs a separate debug information package from the build,
+  installed only when wanted and not counted in the base size budget.
+
+### Breakpoints in shared code
+
+Module code is the same physical memory in every domain. A breakpoint written
+into it would stop every domain running that module.
+
+- Setting a breakpoint gives the target domain its own copy of that code page, at
+  the same address, in its own page table. Only the debugged domain sees the
+  breakpoint.
+- The copy is charged to the debugger's budget, not the target's.
+- The copy is dropped when the breakpoint is removed or the debugger detaches.
+
+### The watchdog
+
+A domain stopped by a debugger is not hung. The event-thread watchdog is paused
+for any domain a debugger has stopped.
+
+### Who may debug
+
+Controlling another domain is the most powerful permission in the system.
+
+- A domain can be debugged if it was started under the debugger, or if the user
+  approves attaching to it.
+- Attaching always asks the user. A program can request an attach, but never
+  grant one: the prompt is shown by the base system, and the requester cannot
+  answer it, as with Windows' User Account Control.
+- Attaching to a `System.` domain asks the user too, and says plainly that it is
+  part of the base system.
+- Before the GUI exists, there is no prompt. Every attach, including one from a
+  debugger on the serial console, proceeds and writes a warning to the serial
+  console naming the debugger and the target domain. The prompt arrives with the
+  GUI.
+- A boot option turns attaching off entirely. With it set, every attach is
+  refused, naming the option. Starting a program under the debugger still works:
+  launching it from the debugger is the user's approval. This is the safety
+  margin while attaching needs no prompt.
+
+### Open
+
+- How the GUI prompt is protected from a program answering it with synthetic
+  input.
 
 ## Open
 

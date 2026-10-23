@@ -322,6 +322,11 @@ BEGIN
       END
     ELSE
       WriteNode(e, indent); e := e.next; (* the head *)
+      (* A source position right after the head stays on the header line and
+         does not count against keep. *)
+      IF (e # NIL) & (e.kind = Position) THEN
+        Out.Char(" "); WriteNode(e, indent); e := e.next
+      END;
       k := 0;
       WHILE (e # NIL) & ((keep < 0) & (e.kind # List) OR (k < keep)) DO
         Out.Char(" "); WriteNode(e, indent); e := e.next; INC(k)

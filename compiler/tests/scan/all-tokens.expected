@@ -1,0 +1,85 @@
+2:1 +
+2:3 -
+2:5 *
+2:7 /
+2:9 ~
+2:11 &
+2:13 .
+2:15 ,
+2:17 ;
+2:19 |
+2:21 (
+2:23 )
+2:25 [
+2:27 ]
+2:29 {
+2:31 }
+2:33 :=
+2:36 ^
+2:38 =
+2:40 #
+2:42 <
+2:44 <=
+2:47 >
+2:49 >=
+2:52 ..
+2:55 :
+3:1 array
+3:7 begin
+3:13 by
+3:16 case
+3:21 const
+3:27 div
+3:31 do
+3:34 else
+3:39 elsif
+3:45 end
+3:49 exit
+3:54 for
+3:58 if
+3:61 import
+3:68 in
+3:71 is
+4:1 loop
+4:6 mod
+4:10 module
+4:17 nil
+4:21 of
+4:24 or
+4:27 pointer
+4:35 procedure
+4:45 record
+4:52 repeat
+4:59 return
+4:66 then
+4:71 to
+4:74 type
+5:1 until
+5:7 var
+5:11 while
+5:17 with
+6:1 ident Name
+6:6 ident name2
+6:12 ident MODULE
+6:19 ident Begin
+7:1 int 0
+7:3 int 42
+7:6 int 9223372036854775807
+7:26 int 255
+7:31 int 9223372036854775807
+7:49 char 65
+7:53 char 0
+7:56 char 1114111
+7:64 int 1
+7:65 ..
+7:67 int 5
+8:1 real 1.5
+8:5 real 2.0E10
+8:12 real 3.E-2
+8:18 real 4.25D+3
+9:1 string "double"
+9:10 string "single "inner""
+9:27 string ""
+9:30 string "é and 日本 count as one column each"
+9:66 ident x
+10:1 end of file

@@ -1,0 +1,1 @@
+module M; procedure P; begin halt(1.5) end P; end M.

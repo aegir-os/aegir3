@@ -9,7 +9,7 @@ include $(ROOT)/config.mk
 
 GOLDEN := $(LUA) $(ROOT)/tools/check-golden.lua
 
-CHECKS := check-sexpr check-ir-roundtrip check-verifier
+CHECKS := check-sexpr check-ir-roundtrip check-verifier check-scan check-parse
 
 .PHONY: all clean $(CHECKS)
 
@@ -29,5 +29,13 @@ check-ir-roundtrip:
 # refused by the reader exactly as before.
 check-verifier:
 	$(GOLDEN) $@ '$(O5IR) {} VERIFY' $(sort $(wildcard verify/*.o5ir ir/*.o5ir))
+
+# Oberon-5 source scanned into tokens, one per line with its position.
+check-scan:
+	$(GOLDEN) $@ '$(O5C) {} TOKENS' $(sort $(wildcard scan/*.ob5))
+
+# Oberon-5 source parsed into syntax trees, printed as S-expressions.
+check-parse:
+	$(GOLDEN) $@ '$(O5C) {} AST' $(sort $(wildcard parse/*.ob5))
 
 clean:

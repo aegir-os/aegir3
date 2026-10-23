@@ -9,7 +9,7 @@ SRC   := src
 BUILD := build
 
 # Library modules in dependency order; VOC compiles them in the order given.
-LIBS    := Report Sexpr IrLayout Ir IrText Verify
+LIBS    := Report Sexpr IrLayout Ir IrText Verify Scan Ast Parse
 LIB_SRC := $(LIBS:%=$(SRC)/%.Mod)
 
 .PHONY: all build check clean

@@ -1,0 +1,1 @@
+module M; procedure P(a: Integer); begin halt(a / 2) end P; end M.

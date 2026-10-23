@@ -11,6 +11,9 @@ for Aegir.
   - A proper `String` type supporting Unicode
   - Unicode supporting `Char` type
   - Source files can be Unicode-encoded
+  - Identifiers are ASCII for now (letter {letter | digit}); Unicode is
+    allowed in strings and comments. Unicode identifiers need their own
+    decision, including identifiers that look alike but differ.
 - Region pointers: `pointer {region} to T`, a distinct pointer kind for shared
   and IPC memory, with checked conversion only through `Unsafe`. See
   [Pointers across domains](#pointers-across-domains).

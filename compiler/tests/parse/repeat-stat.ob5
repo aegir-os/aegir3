@@ -1,0 +1,1 @@
+module M; procedure P; begin repeat until true end P; end M.

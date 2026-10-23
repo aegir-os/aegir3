@@ -1,0 +1,30 @@
+(module @1:8 Demo.Forms
+  (procedure @3:11 Wait blocking)
+  (procedure @6:11 Pick export
+    (param @6:17 a Integer)
+    (param @6:20 b Integer)
+    (param @6:32 p Boolean)
+    (param @6:35 q Boolean)
+    (result Integer)
+    (var @7:7 x Integer)
+    (var @7:10 y Integer)
+    (var @8:7 z LongInt)
+    (begin
+      (assign @10:3 x (- @10:18 (+ @10:10 (ident @10:8 a) (* @10:14 (ident @10:12 b) (number @10:16 2))) (mod @10:31 (div @10:25 (- @10:21 (ident @10:22 a)) (number @10:29 3)) (number @10:35 4))))
+      (assign @11:3 p (or @11:15 (& @11:11 (~ @11:8 (ident @11:9 p)) (ident @11:13 q)) (& @11:26 (= @11:21 (ident @11:19 a) (ident @11:23 b)) (# @11:35 (+ @11:31 (ident @11:29 a) (number @11:33 1)) (ident @11:37 b)))))
+      (if @12:3 (< @12:8 (ident @12:6 a) (ident @12:10 b))
+        (then
+          (return @12:17 (ident @12:24 a)))
+        (elsif @13:3 (> @13:11 (ident @13:9 a) (ident @13:13 b))
+          (then
+            (assign @13:20 x (number @13:25 1))
+            (assign @13:29 y (number @13:34 2))))
+        (elsif @14:3 (<= @14:11 (ident @14:9 a) (ident @14:14 b))
+          (then))
+        (else
+          (return @15:8 (ident @15:15 b))))
+      (while @17:3 (& @17:18 (>= @17:12 (ident @17:10 x) (number @17:15 0)) (~ @17:20 (ident @17:21 q)))
+        (assign @17:26 x (- @17:33 (ident @17:31 x) (number @17:35 1))))
+      (call @18:3 Wait)
+      (call @19:3 Wait)
+      (return @20:3 (ident @20:10 x)))))

@@ -1,0 +1,3 @@
+1:1 ident x
+1:3 :=
+refused: scan/string-not-closed.ob5:1:6: string is not closed

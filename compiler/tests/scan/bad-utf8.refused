@@ -1,0 +1,3 @@
+1:1 ident x
+1:3 :=
+refused: scan/bad-utf8.ob5:1:8: malformed UTF-8

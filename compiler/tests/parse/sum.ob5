@@ -1,0 +1,13 @@
+module Demo.Sum; (* the spec's example, as source *)
+
+procedure Sum*(n: Integer): Integer;
+  var i, s: Integer;
+begin
+  s := 0; i := 1;
+  while i <= n do s := s + i; i := i + 1 end;
+  return s
+end Sum;
+
+begin
+  halt(Sum(10))
+end Demo.Sum.

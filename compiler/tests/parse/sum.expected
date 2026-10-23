@@ -1,0 +1,15 @@
+(module @1:8 Demo.Sum
+  (procedure @3:11 Sum export
+    (param @3:16 n Integer)
+    (result Integer)
+    (var @4:7 i Integer)
+    (var @4:10 s Integer)
+    (begin
+      (assign @6:3 s (number @6:8 0))
+      (assign @6:11 i (number @6:16 1))
+      (while @7:3 (<= @7:11 (ident @7:9 i) (ident @7:14 n))
+        (assign @7:19 s (+ @7:26 (ident @7:24 s) (ident @7:28 i)))
+        (assign @7:31 i (+ @7:38 (ident @7:36 i) (number @7:40 1))))
+      (return @8:3 (ident @8:10 s))))
+  (begin
+    (call @12:3 halt (call @12:8 Sum (number @12:12 10)))))

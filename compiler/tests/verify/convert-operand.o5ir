@@ -1,0 +1,1 @@
+(module M (proc P (param a LongInt) (result LongInt) (body (return (convert Integer LongInt (get a))))))

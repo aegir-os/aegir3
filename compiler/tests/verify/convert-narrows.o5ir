@@ -1,0 +1,1 @@
+(module M (proc P (param a Integer) (result Byte) (body (return (convert Integer Byte (get a))))))

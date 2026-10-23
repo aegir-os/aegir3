@@ -1,0 +1,1 @@
+refused: verify/blocking-call-in-expr.o5ir: M.P: rule 9: P is not blocking, so it cannot call blocking Q

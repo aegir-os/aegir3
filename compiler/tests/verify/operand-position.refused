@@ -1,0 +1,1 @@
+refused: verify/operand-position.o5ir: M.P at 3:12: rule 2: operand of add is LongInt, expected Integer

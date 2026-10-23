@@ -1,0 +1,1 @@
+(module M (proc Q (body)) (proc P (result Integer) (body (return (call Q)))))

@@ -1,0 +1,1 @@
+refused: verify/unreachable-after-halt.o5ir: M init: rule 11: halt can never run: it follows halt

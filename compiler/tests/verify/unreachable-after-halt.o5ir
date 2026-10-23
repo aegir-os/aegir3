@@ -1,0 +1,1 @@
+(module M (init (halt (const Integer 1)) (halt (const Integer 2))))

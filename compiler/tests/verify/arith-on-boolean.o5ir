@@ -1,0 +1,1 @@
+(module M (proc P (param a Boolean) (result Boolean) (body (return (add Boolean (get a) (get a))))))

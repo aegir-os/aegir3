@@ -1,0 +1,1 @@
+(module M (proc P (body (add Integer (const Integer 1) (const Integer 2)))))

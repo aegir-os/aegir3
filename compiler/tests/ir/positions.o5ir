@@ -1,0 +1,6 @@
+(module Demo.Positions
+  (proc P
+    (param a Integer)
+    (result Integer)
+    (body
+      (return @4:3 (add @4:12 Integer (get @4:10 a) (const @4:14 Integer 1))))))

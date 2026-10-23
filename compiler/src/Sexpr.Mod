@@ -33,6 +33,7 @@ TYPE
     int*: LONGINT;         (* Integer *)
     pline*, pcol*: INTEGER;(* Position *)
     first*: Node;          (* List: first element *)
+    last: Node;            (* List: last element, for Append *)
     next*: Node            (* next element of the enclosing list *)
   END;
 
@@ -177,7 +178,8 @@ BEGIN
     IF e = NIL THEN EXIT END;
     IF last = NIL THEN x.first := e ELSE last.next := e END;
     last := e
-  END
+  END;
+  x.last := last
 END ReadList;
 
 (* Read one expression at pos; NIL on error. *)
@@ -219,6 +221,45 @@ BEGIN
   IF pos < len THEN Fail("text after the end of the expression", line, col); RETURN NIL END;
   RETURN x
 END Read;
+
+(* ---- Building ---- *)
+
+PROCEDURE NewSymbol*(s: ARRAY OF CHAR): Node;
+  VAR x: Node; n, i: LONGINT;
+BEGIN
+  NEW(x); x.kind := Symbol;
+  n := 0; WHILE (n < LEN(s)) & (s[n] # 0X) DO INC(n) END;
+  NEW(x.name, n + 1);
+  FOR i := 0 TO n - 1 DO x.name[i] := s[i] END;
+  x.name[n] := 0X;
+  RETURN x
+END NewSymbol;
+
+PROCEDURE NewInteger*(v: LONGINT): Node;
+  VAR x: Node;
+BEGIN
+  NEW(x); x.kind := Integer; x.int := v; RETURN x
+END NewInteger;
+
+PROCEDURE NewPosition*(l, c: INTEGER): Node;
+  VAR x: Node;
+BEGIN
+  NEW(x); x.kind := Position; x.pline := l; x.pcol := c; RETURN x
+END NewPosition;
+
+PROCEDURE NewList*(): Node;
+  VAR x: Node;
+BEGIN
+  NEW(x); x.kind := List; RETURN x
+END NewList;
+
+(* Add x to the end of list. *)
+PROCEDURE Append*(list, x: Node);
+BEGIN
+  ASSERT(list.kind = List);
+  IF list.last = NIL THEN list.first := x ELSE list.last.next := x END;
+  list.last := x
+END Append;
 
 (* ---- Writing ---- *)
 

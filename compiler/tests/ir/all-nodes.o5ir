@@ -1,0 +1,25 @@
+(module Demo.AllNodes
+  (proc Wide export blocking
+    (param b Byte)
+    (param s ShortInt)
+    (result LongInt)
+    (local x Integer)
+    (body
+      (set x (convert ShortInt Integer (get s)))
+      (if (and (not (eq Integer (get x) (const Integer 0))) (or (lt Byte (get b) (const Byte 10)) (const Boolean false)))
+        (then
+          (set x (neg Integer (get x)))))
+      (return (convert Integer LongInt (mod Integer (div Integer (mul Integer (sub Integer (get x) (const Integer 1)) (const Integer 3)) (const Integer 2)) (const Integer 7))))))
+  (proc Check
+    (param n Integer)
+    (body
+      (if (ne Integer (get n) (const Integer 0))
+        (then
+          (call Check (const Integer 0)))
+        (else
+          (return)))
+      (while (ge Integer (get n) (const Integer 0))
+        (set n (sub Integer (get n) (const Integer 1))))
+      (halt (get n))))
+  (init
+    (call Check (const Integer 1))))

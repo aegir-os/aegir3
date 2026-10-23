@@ -209,7 +209,7 @@ text format is the same idea.
 ```
 
 In debug IR, any node may carry a source position after its name:
-`(add Integer @12:9 (get s) (get i))`.
+`(add @12:9 Integer (get s) (get i))`.
 
 ### Types
 
@@ -258,10 +258,17 @@ their exit code before any I/O exists.
 
 ### Verifier rules for this slice
 
-Each rule gets at least one `check-verifier` file that breaks it.
+Each rule gets at least one `check-verifier` file that breaks it. A refusal
+names the module, the procedure (or `init`), the source position when the IR
+carries one, and the rule:
+`Demo.Sum.Sum at 12:9: rule 2: operand of add is LongInt, expected Integer`.
 
-1. Every name refers to a declared local, parameter or procedure.
-2. Every operand's type equals the type its node names.
+1. Every name refers to a declared local, parameter or procedure. The reader
+   enforces this, since IR records cannot be built from a name that does not
+   resolve.
+2. Every operand's type equals the type its node names. Arithmetic and the
+   ordering comparisons (`lt`, `le`, `gt`, `ge`) name an integer type; `eq` and
+   `ne` may also name `Boolean`. `halt`'s operand is `Integer`.
 3. `set` assigns a value of the variable's declared type.
 4. Conditions of `if` and `while`, and operands of `and`, `or` and `not`, are
    `Boolean`.
@@ -269,13 +276,21 @@ Each rule gets at least one `check-verifier` file that breaks it.
    expression names a procedure with a result; a call used as a statement names
    one without.
 6. `return` carries a value of the result type in a procedure with a result, and
-   no value otherwise.
+   no value otherwise. `return` does not appear in `init`, which is not a
+   procedure.
 7. A procedure with a result cannot reach the end of its body: its last
-   statement is a `return`, or an `if` with an `else` where both branches end
-   that way. A `while` never counts, even with a constant `true` condition.
+   statement is a `return` or a `halt`, or an `if` with an `else` where both
+   branches end that way. A `while` never counts, even with a constant `true`
+   condition.
 8. A constant fits its type.
-9. A procedure not flagged `blocking` does not call one that is.
+9. A procedure not flagged `blocking` does not call one that is. `init` may,
+   since initialization may block.
 10. `convert` only widens, in this slice.
+11. No statement follows one that cannot complete: nothing after a `return` or a
+    `halt` in the same list, or after an `if` with an `else` whose branches both
+    end that way. Reachability is structural, as in rule 7: a `while` never
+    counts as ending, and conditions are never evaluated. The compiler refuses
+    unreachable code, so IR that contains any is a compiler bug or forged.
 
 ### Binary encoding
 

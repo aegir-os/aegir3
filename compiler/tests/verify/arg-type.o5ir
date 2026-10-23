@@ -1,0 +1,1 @@
+(module M (proc Q (param a Integer) (param b Integer) (body)) (proc P (body (call Q (const Integer 1) (const Byte 2)))))

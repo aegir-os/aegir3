@@ -1,0 +1,1 @@
+refused: verify/unreachable-after-if.o5ir: M.P: rule 11: return can never run: every branch of the if before it ends

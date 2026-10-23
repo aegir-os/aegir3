@@ -1,0 +1,9 @@
+(module Demo.Forward
+  (proc A
+    (result Integer)
+    (body
+      (return (call B))))
+  (proc B
+    (result Integer)
+    (body
+      (return (const Integer 1)))))

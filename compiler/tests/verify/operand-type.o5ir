@@ -1,0 +1,1 @@
+(module M (proc P (param a LongInt) (result Integer) (body (return (add Integer (get a) (const Integer 1))))))

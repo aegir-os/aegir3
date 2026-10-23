@@ -1,0 +1,43 @@
+(module Demo.Accepted
+  (proc Bounds
+    (result Boolean)
+    (local b Byte)
+    (local s ShortInt)
+    (local i Integer)
+    (local l LongInt)
+    (body
+      (set b (const Byte 127))
+      (set b (const Byte -128))
+      (set s (const ShortInt 32767))
+      (set s (const ShortInt -32768))
+      (set i (const Integer 2147483647))
+      (set i (const Integer -2147483648))
+      (set l (const LongInt 9223372036854775807))
+      (set l (const LongInt -9223372036854775808))
+      (set l (convert Byte LongInt (get b)))
+      (return (eq Boolean (const Boolean true) (ne Boolean (const Boolean false) (const Boolean true))))))
+  (proc EndsInHalt
+    (result Integer)
+    (body
+      (halt (const Integer 3))))
+  (proc NestedIf
+    (param a Boolean)
+    (param b Boolean)
+    (result Integer)
+    (body
+      (if (get a)
+        (then
+          (if (get b)
+            (then
+              (return (const Integer 1)))
+            (else
+              (halt (const Integer 2)))))
+        (else
+          (return (const Integer 3))))))
+  (proc Wait blocking
+    (body))
+  (proc Waiter blocking
+    (body
+      (call Wait)))
+  (init
+    (call Wait)))

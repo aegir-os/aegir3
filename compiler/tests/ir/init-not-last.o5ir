@@ -1,0 +1,1 @@
+(module M (init (halt (const Integer 0))) (proc P (body)))

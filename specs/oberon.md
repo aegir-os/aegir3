@@ -134,6 +134,9 @@ Refusals come in a few forms:
   code.
 - Functions that can fail will return a result code (Oberon standard)
 - HALT will terminate a domain with an explicit system return code.
+- Unreachable code, such as a statement after `return` or `halt`, is a loud
+  compile-time refusal, never a warning. The IR verifier refuses it too (rule 11
+  in [ir.md](ir.md)).
 - ASSERT failures will terminate a domain, when running with assertions enabled.
   Assertion enablement is a compiler flag, and are non-op when this flag is disabled.
 - Thread limits, worker queue, job and port refusals occur at runtime via a returned 

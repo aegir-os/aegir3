@@ -1,0 +1,1 @@
+(module M (proc P (param a Boolean) (result Integer) (body (if (get a) (then (return (const Integer 1))) (else (halt (const Integer 2)))) (return (const Integer 3)))))

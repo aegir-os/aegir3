@@ -1,0 +1,7 @@
+(module Demo.AfterWhileTrue
+  (proc P
+    (result Integer)
+    (body
+      (while (const Boolean true)
+        (return (const Integer 1)))
+      (return (const Integer 2)))))

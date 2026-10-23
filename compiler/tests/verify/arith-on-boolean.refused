@@ -1,0 +1,1 @@
+refused: verify/arith-on-boolean.o5ir: M.P: rule 2: add needs an integer type, not Boolean

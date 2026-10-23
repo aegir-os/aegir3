@@ -1,0 +1,1 @@
+refused: verify/shortint-too-large.o5ir: M.P: rule 8: constant 32768 does not fit ShortInt

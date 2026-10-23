@@ -1,0 +1,1 @@
+refused: verify/halt-type.o5ir: M init: rule 2: operand of halt is LongInt, expected Integer

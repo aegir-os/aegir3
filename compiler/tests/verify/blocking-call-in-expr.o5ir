@@ -1,0 +1,1 @@
+(module M (proc Q blocking (result Integer) (body (return (const Integer 1)))) (proc P (result Integer) (body (return (call Q)))))

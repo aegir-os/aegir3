@@ -1,0 +1,15 @@
+(module Demo.Sum
+  (proc Sum export
+    (param n Integer)
+    (result Integer)
+    (local i Integer)
+    (local s Integer)
+    (body
+      (set s (const Integer 0))
+      (set i (const Integer 1))
+      (while (le Integer (get i) (get n))
+        (set s (add Integer (get s) (get i)))
+        (set i (add Integer (get i) (const Integer 1))))
+      (return (get s))))
+  (init
+    (halt (call Sum (const Integer 10)))))

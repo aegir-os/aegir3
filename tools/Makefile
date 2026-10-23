@@ -1,0 +1,18 @@
+# Build tools: Lua scripts used during the build, and later the ELF-to-module
+# converter. Building this directory runs its tests: check is a prerequisite
+# of all.
+
+ROOT := ..
+include $(ROOT)/config.mk
+
+.PHONY: all build check clean
+
+all: check
+
+build:
+
+check: build
+	$(MAKE) -C tests all
+
+clean:
+	$(MAKE) -C tests clean

@@ -1,0 +1,4 @@
+; Comments, extra blank space and one-line blocks are normalized away.
+(module   Demo.Layout   (proc Max export (param a Integer) (param b Integer)
+  (result Integer)
+  (body (if (gt Integer (get a) (get b)) (then (return (get a))) (else (return (get b)))))))  ; trailing

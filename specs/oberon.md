@@ -108,6 +108,24 @@ The compiler will build in stages:
 1. VOC will be used to build the first compiler in plain Oberon-2.
 2. Move the compiler to Oberon-5 once it can compile itself.
 
+Neither stage needs an x86-64 native backend. VOC turns Oberon-2 into C, which the
+host's C compiler builds. For stage 2, the compiler's own IR goes through an
+IR-to-C backend and the host's clang, the same trick VOC uses.
+
+The IR-to-C backend also serves as:
+
+- The hosted backend: Aegir's runtime as a program on the development machine,
+  with the address classes, budgets, slot tables and ports in a runtime library.
+- Host debugging of the hosted backend: the generated C carries `#line`
+  directives pointing at the Oberon-5 source, so host gdb shows Oberon-5 lines.
+
+Its output only ever runs on the host. Native code on the device comes from the
+deterministic translator, so the trust rules are unaffected.
+
+Order of work: the IR specification ([ir.md](ir.md)), the front end in Oberon-2
+under VOC, the IR-to-C backend and hosted runtime, self-hosting, then the RISC-V
+translator and the kernel on QEMU.
+
 ## Refusals
 
 Refusals come in a few forms:
@@ -165,11 +183,12 @@ own, reached through a published port.
 First-run translation is done by a translation service, a domain of its own with
 its own budget, not by the app's domain.
 
-- On the device, the service is the only domain that writes native code. The only
-  other source of native code is the build. An app never has write access to its
-  own code. The compiler's checks (region kinds, `{blocking}`, `{borrowed}`) only
-  hold if native code comes from the translator; an app that could write its own
-  native code could skip them.
+- On the device, the service is the only domain that writes translated native
+  code. The other sources of native code are the build and an app's own C
+  objects (see [Apps with C code](#apps-with-c-code)). An app never has write
+  access to its own code.
+- The service verifies an app's IR before translating it, since the app's
+  compiler cannot be trusted. See [Verification](ir.md#verification).
 - An app's spawn budget covers running it, never translating it.
 - The service runs the same translator the build uses for the base system.
 - Spawning a program that needs translation waits on the service. The launcher
@@ -183,15 +202,16 @@ its own budget, not by the app's domain.
 
 ### Native cache
 
-Native code for apps lives in a system-owned cache, never in the program object.
-A program object holds only IR, its spawn budget and its metadata.
+Translated native code for apps lives in a system-owned cache, never in the
+program object. A program object holds IR, its spawn budget, its metadata, and
+any C objects the app ships.
 
 - The cache is keyed by IR hash, translator version and architecture. Entries
   are native code before fixups; fixups are applied at load, so the cache key
   needs no import keys (the module-address key does).
 - Only the translation service writes to the cache. A program object arriving
-  from another machine has nowhere to carry native code, so provenance needs no
-  signing, keys or machine identifier. Copying an app does not copy its native
+  from another machine has nowhere to carry translated code, so provenance needs
+  no signing, keys or machine identifier. Copying an app does not copy its native
   code; the copy is translated once on first run.
 - Two copies of the same app share one entry, because the key is content-based.
 - The cache has a fixed size budget. When a new entry does not fit, the least
@@ -731,10 +751,30 @@ design must meet these rules:
   C must be kept alive from the Oberon side for as long as C holds it.
 - C procedures are declared in an Oberon-5 interface module that states their
   types and whether they are `{blocking}`. The compiler trusts the declaration.
-- C code counts against the base system's size budget like everything else.
+- C in the base system counts against the base system's size budget like
+  everything else.
 - No `longjmp` across Oberon frames. C libraries that unwind this way (Lua's
   `lua_error`) call Oberon only through a C shim: the Oberon procedure returns a
   result code and the shim raises the C-side error.
+
+### Apps with C code
+
+Apps may ship their own C, not only use C from the base system.
+
+- The app author compiles it with the same pipeline (host clang, `ld -r`, the
+  converter) and ships the module objects in the program object, one per
+  architecture the app supports.
+- Launching on an architecture the app ships no C objects for is refused, naming
+  the architecture and the module.
+- C objects are native code from outside the translator. They are not verified
+  and are loaded as they are. A program object containing them is marked, and a
+  launcher can show it, as with modules importing `Unsafe`.
+- This does not weaken other domains. Isolation between domains is enforced by
+  the kernel: page tables, the region pointer check on every send, the refusal of
+  blocking calls on event threads. Unverified code can only damage its own
+  domain, and any domain that chooses to load it as a library.
+- The interface module's declarations, including `{blocking}`, are trusted. A
+  wrong `{blocking}` is caught by the kernel's event-thread backstop.
 
 ### C library
 
@@ -823,6 +863,29 @@ Implicit type conversions that lose precision will be refused as an error by the
 compiler, and explicit conversions are provided by the `Conversions` module. This
 module will include functions that trap on overflow, and explicit truncating
 conversion functions will be provided.
+
+### Integer arithmetic
+
+Integer overflow is never undefined and never silent. Prior art: Ada and Swift
+trap in every build. Rust panics only in debug builds, so its programs behave
+differently once optimized; with debug symbols requiring `O=0`, that would mean a
+program behaves differently while being debugged, so it is not followed here.
+
+- Integer arithmetic that overflows traps, in every build and at every
+  optimization level. The domain ends with a refusal naming the operation, type,
+  operands and procedure:
+  `refused: overflow: Integer 2147483647 + 1 in Parser.Count`.
+- Integer division by zero traps.
+- `MIN(T) div -1` traps, since the result does not fit.
+- A shift by a count outside `0` to the type's width minus one traps.
+- Explicit forms, in an `Arithmetic` module, for code that wants other behavior.
+  The translator compiles them to instructions, with no call cost:
+  - Wrapping (two's complement), for hashes, checksums and random number
+    generators.
+  - Checked with a result, returning a result code instead of trapping.
+  - Saturating, clamping at the type's limits, for graphics and audio.
+- `Real` and `LongReal` follow IEEE 754: overflow gives infinity, invalid
+  operations give NaN, and nothing traps.
 
 ### Pointers
 
@@ -1054,8 +1117,8 @@ Controlling another domain is the most powerful permission in the system.
   [Ports](#ports).
 - **Native cache**: the system-owned store of translated app code, keyed by IR
   hash, translator version and architecture. See [Native cache](#native-cache).
-- **Program object**: the file holding a program's IR, its spawn budget and its
-  metadata. Never native code.
+- **Program object**: the file holding a program's IR, its spawn budget, its
+  metadata and any C objects it ships. Never translated code.
 - **Refusal**: a failure that names the quantity involved. Either a result code
   returned to the caller or, for exhausting a budget, termination of the domain.
   See [Refusals](#refusals).
